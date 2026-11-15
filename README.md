@@ -76,14 +76,6 @@ I build mobile and web applications end to end: Flutter on the client, Laravel a
 
 <sub>Cards are rendered every 6 hours by <a href=".github/workflows/profile-cards.yml">a workflow in this repo</a> from the GitHub API.</sub>
 
-## Projects
-
-| Project | Stack | Notes |
-| :-- | :-- | :-- |
-| [**lan-party**](https://github.com/ArmanAbir2000/lan-party) | GDScript · Godot | Public, archived |
-
-<sub>More projects will be listed here as their demos and docs are ready.</sub>
-
 ---
 
 <p align="center">
