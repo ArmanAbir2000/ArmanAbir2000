@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render red / black / white profile cards from the GitHub GraphQL API.
+"""Render the profile activity cards (red / black / white, see theme.py).
 
 Outputs (into --out, default ./dist):
   stats-dark.svg      stats-light.svg
@@ -30,27 +30,8 @@ from pathlib import Path
 
 # ---------------------------------------------------------------- theme tokens
 
-THEMES = {
-    "dark": {
-        "bg": "#0A0A0A",
-        "border": "#262626",
-        "text": "#FAFAFA",
-        "muted": "#A3A3A3",
-        "faint": "#525252",
-        "red": "#E11D2E",
-        # NONE, FIRST_QUARTILE, SECOND_QUARTILE, THIRD_QUARTILE, FOURTH_QUARTILE
-        "levels": ["#171717", "#4C0A13", "#86101F", "#C8152B", "#FF3B4E"],
-    },
-    "light": {
-        "bg": "#FFFFFF",
-        "border": "#E5E5E5",
-        "text": "#0A0A0A",
-        "muted": "#525252",
-        "faint": "#A3A3A3",
-        "red": "#C8102E",
-        "levels": ["#F0F0F0", "#FECDD3", "#FB7185", "#E11D2E", "#9F1020"],
-    },
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from theme import COL, SANS, THEMES, WIDTH, label, svg_open  # noqa: E402
 
 LEVEL_INDEX = {
     "NONE": 0,
@@ -59,11 +40,6 @@ LEVEL_INDEX = {
     "THIRD_QUARTILE": 3,
     "FOURTH_QUARTILE": 4,
 }
-
-SANS = "Segoe UI, -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif"
-MONO = "SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace"
-
-WIDTH = 1200
 
 # ---------------------------------------------------------------- data
 
@@ -233,75 +209,60 @@ def fmt(n: int) -> str:
     return f"{n:,}"
 
 
-def frame(t: dict, height: int, body: str, label: str) -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{height}" viewBox="0 0 {WIDTH} {height}" role="img" aria-label="{escape(label)}">
-  <title>{escape(label)}</title>
-  <defs><clipPath id="c"><rect x="0" y="0" width="{WIDTH}" height="{height}" rx="10"/></clipPath></defs>
-  <g clip-path="url(#c)">
-    <rect width="{WIDTH}" height="{height}" fill="{t['bg']}"/>
-    <rect x="0" y="0" width="4" height="{height}" fill="{t['red']}"/>
-  </g>
-  <rect x="0.5" y="0.5" width="{WIDTH - 1}" height="{height - 1}" rx="10" fill="none" stroke="{t['border']}"/>
-{body}
-</svg>
-"""
+def plural(n: int, word: str) -> str:
+    return f"{word}{'' if n == 1 else 's'}"
 
 
-def header_row(t: dict, title: str, right: str) -> str:
-    return f"""  <text x="40" y="44" fill="{t['muted']}" font-family="{MONO}" font-size="13" letter-spacing="2">{escape(title)}</text>
-  <text x="{WIDTH - 40}" y="44" text-anchor="end" fill="{t['faint']}" font-family="{MONO}" font-size="12" letter-spacing="1">{escape(right)}</text>
-  <line x1="40" y1="62" x2="{WIDTH - 40}" y2="62" stroke="{t['border']}"/>"""
-
-
-def stats_svg(s: dict, theme: str, updated: str) -> str:
+def stats_svg(s: dict, theme: str) -> str:
+    """Four figures on the 12-column grid (3 columns each), hairline on top."""
     t = THEMES[theme]
     metrics = [
-        ("CONTRIBUTIONS", fmt(s["total"]), "last 12 months"),
-        ("CURRENT STREAK", fmt(s["current"]), "days" if s["current"] != 1 else "day"),
-        ("LONGEST STREAK", fmt(s["longest"]), "days" if s["longest"] != 1 else "day"),
-        ("ACTIVE DAYS", fmt(s["active"]), f"best day: {fmt(s['best'])}"),
+        ("Contributions", s["total"], "in the last 12 months"),
+        ("Current streak", s["current"], plural(s["current"], "day")),
+        ("Longest streak", s["longest"], plural(s["longest"], "day")),
+        ("Active days", s["active"], f"busiest day: {fmt(s['best'])}"),
     ]
-    col_w = (WIDTH - 80) / len(metrics)
-    parts = [header_row(t, "GITHUB ACTIVITY", f"UPDATED {updated}")]
-    for i, (label, value, sub) in enumerate(metrics):
-        x = 40 + i * col_w
-        accent = t["red"] if i == 1 else t["text"]
-        if i:
-            parts.append(f'  <line x1="{x:.1f}" y1="88" x2="{x:.1f}" y2="176" stroke="{t["border"]}"/>')
-        pad = 0 if i == 0 else 28
-        parts.append(
-            f"""  <text x="{x + pad:.1f}" y="104" fill="{t['muted']}" font-family="{MONO}" font-size="12" letter-spacing="1.5">{label}</text>
-  <text x="{x + pad:.1f}" y="152" fill="{accent}" font-family="{SANS}" font-size="44" font-weight="700">{value}</text>
-  <text x="{x + pad:.1f}" y="176" fill="{t['faint']}" font-family="{MONO}" font-size="12">{escape(sub)}</text>"""
+    h = 180
+    out = [svg_open(WIDTH, h, f"GitHub activity: {fmt(s['total'])} contributions in the last year")]
+    for i, (name, value, sub) in enumerate(metrics):
+        x = i * 3 * COL
+        out.append(label(t, x, 34, name))
+        out.append(
+            f'  <text x="{x:g}" y="112" fill="{t["text"]}" font-family="{SANS}" font-size="72" '
+            f'font-weight="700" letter-spacing="-2">{fmt(value)}</text>\n'
+            f'  <text x="{x:g}" y="152" fill="{t["muted"]}" font-family="{SANS}" font-size="21">{escape(sub)}</text>\n'
         )
-    return frame(t, 210, "\n".join(parts), f"GitHub activity: {s['total']} contributions in the last year")
+    out.append("</svg>\n")
+    return "".join(out)
 
 
-def activity_svg(s: dict, theme: str) -> str:
+def activity_svg(s: dict, theme: str, updated: str) -> str:
+    """Contribution graph in the red scale, with range + legend underneath."""
     t = THEMES[theme]
-    cell, gap = 16, 4
-    step = cell + gap
     weeks = s["weeks"][-53:]
-    grid_w = len(weeks) * step - gap
-    left = (WIDTH - grid_w) / 2 + 16
-    top = 110
+    left, top, gap = 44, 62, 4
+    step = (WIDTH - left + gap) / 53  # graph spans the full width
+    cell = step - gap
+    h = top + 7 * step + 66
 
-    parts = [header_row(t, "CONTRIBUTION GRAPH", f"{fmt(s['total'])} IN THE LAST YEAR")]
+    out = [svg_open(WIDTH, h, f"Contribution graph: {fmt(s['total'])} contributions in the last year")]
+    out.append(f'  <line x1="0" y1="0.5" x2="{WIDTH}" y2="0.5" stroke="{t["rule"]}"/>\n')
 
-    # Month labels at the first week that starts a new month.
     last_month = None
     for wi, w in enumerate(weeks):
         first = dt.date.fromisoformat(w["contributionDays"][0]["date"])
         if first.month != last_month:
             last_month = first.month
             if wi < len(weeks) - 2:
-                parts.append(
-                    f'  <text x="{left + wi * step:.1f}" y="{top - 14}" fill="{t["muted"]}" font-family="{MONO}" font-size="12">{first.strftime("%b")}</text>'
+                out.append(
+                    f'  <text x="{left + wi * step:g}" y="42" fill="{t["muted"]}" font-family="{SANS}" '
+                    f'font-size="17">{first.strftime("%b")}</text>\n'
                 )
 
     for row, name in ((1, "Mon"), (3, "Wed"), (5, "Fri")):
-        parts.append(
-            f'  <text x="{left - 12:.1f}" y="{top + row * step + 12}" text-anchor="end" fill="{t["faint"]}" font-family="{MONO}" font-size="11">{name}</text>'
+        out.append(
+            f'  <text x="0" y="{top + row * step + cell - 3:g}" fill="{t["faint"]}" font-family="{SANS}" '
+            f'font-size="15">{name}</text>\n'
         )
 
     for wi, w in enumerate(weeks):
@@ -309,21 +270,30 @@ def activity_svg(s: dict, theme: str) -> str:
             wd = (dt.date.fromisoformat(d["date"]).weekday() + 1) % 7  # Sunday = 0
             color = t["levels"][LEVEL_INDEX.get(d["contributionLevel"], 0)]
             n = d["contributionCount"]
-            tip = f'{n} contribution{"s" if n != 1 else ""} on {d["date"]}'
-            parts.append(
-                f'  <rect x="{left + wi * step:.1f}" y="{top + wd * step}" width="{cell}" height="{cell}" rx="3" fill="{color}"><title>{tip}</title></rect>'
+            out.append(
+                f'  <rect x="{left + wi * step:.1f}" y="{top + wd * step:.1f}" width="{cell:.1f}" height="{cell:.1f}" '
+                f'rx="2" fill="{color}"><title>{n} {plural(n, "contribution")} on {d["date"]}</title></rect>\n'
             )
 
-    # Legend
-    ly = top + 7 * step + 18
-    lx = WIDTH - 40 - (5 * step - gap) - 44
-    parts.append(f'  <text x="{lx - 10}" y="{ly + 12}" text-anchor="end" fill="{t["faint"]}" font-family="{MONO}" font-size="11">Less</text>')
+    first_day = dt.date.fromisoformat(weeks[0]["contributionDays"][0]["date"])
+    last_day = dt.date.fromisoformat(weeks[-1]["contributionDays"][-1]["date"])
+    fy = round(top + 7 * step + 42)
+    out.append(
+        f'  <text x="0" y="{fy}" fill="{t["faint"]}" font-family="{SANS}" font-size="17">'
+        f'{first_day.strftime("%b %Y")} – {last_day.strftime("%b %Y")}  ·  updated {updated}</text>\n'
+    )
+    ls = 18  # legend swatch
+    lx = WIDTH - 5 * (ls + gap) - 54
+    out.append(
+        f'  <text x="{lx - 10}" y="{fy}" text-anchor="end" fill="{t["faint"]}" font-family="{SANS}" font-size="17">Less</text>\n'
+    )
     for i, c in enumerate(t["levels"]):
-        parts.append(f'  <rect x="{lx + i * step}" y="{ly}" width="{cell}" height="{cell}" rx="3" fill="{c}"/>')
-    parts.append(f'  <text x="{lx + 5 * step + 6}" y="{ly + 12}" fill="{t["faint"]}" font-family="{MONO}" font-size="11">More</text>')
-
-    height = ly + cell + 30
-    return frame(t, height, "\n".join(parts), f"Contribution graph: {s['total']} contributions in the last year")
+        out.append(f'  <rect x="{lx + i * (ls + gap)}" y="{fy - 15}" width="{ls}" height="{ls}" rx="2" fill="{c}"/>\n')
+    out.append(
+        f'  <text x="{WIDTH}" y="{fy}" text-anchor="end" fill="{t["faint"]}" font-family="{SANS}" font-size="17">More</text>\n'
+    )
+    out.append("</svg>\n")
+    return "".join(out)
 
 
 # ---------------------------------------------------------------- main
@@ -354,8 +324,8 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     for theme in THEMES:
-        (out / f"stats-{theme}.svg").write_text(stats_svg(s, theme, updated), encoding="utf-8")
-        (out / f"activity-{theme}.svg").write_text(activity_svg(s, theme), encoding="utf-8")
+        (out / f"stats-{theme}.svg").write_text(stats_svg(s, theme), encoding="utf-8")
+        (out / f"activity-{theme}.svg").write_text(activity_svg(s, theme, updated), encoding="utf-8")
     print(f"total={s['total']} current={s['current']} longest={s['longest']} active={s['active']} -> {out}/")
     return 0
 
