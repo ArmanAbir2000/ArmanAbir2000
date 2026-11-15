@@ -1,0 +1,46 @@
+# Renders the stats + contribution cards used in README.md and publishes them
+# to the `output` branch. No third-party card service involved.
+#
+# Optional: add a classic PAT (scope `read:user`) as repo secret PROFILE_TOKEN
+# if private contributions should be counted. Also enable
+# "Include private contributions on my profile" in GitHub profile settings.
+
+name: profile cards
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours (UTC)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/generate_cards.py"
+      - ".github/workflows/profile-cards.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: profile-cards
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render cards
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROFILE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: python3 scripts/generate_cards.py --user "${{ github.repository_owner }}" --out dist
+
+      - name: Publish to output branch
+        run: |
+          cd dist
+          git init -q -b output
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -q -m "Update profile cards"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" output
