@@ -5,6 +5,9 @@ Outputs (into --out, default ./dist):
   stats-dark.svg      stats-light.svg
   activity-dark.svg   activity-light.svg
 
+Data source: the public contribution calendar (includes private counts when
+the profile setting is on), with the GraphQL API as a fallback.
+
 Usage:
   GITHUB_TOKEN=... python3 scripts/generate_cards.py --user ArmanAbir2000
   python3 scripts/generate_cards.py --mock          # local preview, no API call
@@ -19,6 +22,7 @@ import datetime as dt
 import json
 import os
 import random
+import re
 import sys
 import urllib.request
 from html import escape
@@ -100,6 +104,69 @@ def fetch(login: str, token: str) -> dict:
     if user is None:
         raise SystemExit(f"User not found: {login}")
     return user["contributionsCollection"]
+
+
+LEVEL_NAMES = ["NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE"]
+
+
+def fetch_public(login: str) -> dict:
+    """Read the contribution calendar shown on the public profile.
+
+    This page includes private contributions (as anonymous counts) when the
+    user enabled "Include private contributions on my profile". The Actions
+    GITHUB_TOKEN cannot see those through the GraphQL API, so this is the
+    primary source.
+    """
+    req = urllib.request.Request(
+        f"https://github.com/users/{login}/contributions",
+        headers={"User-Agent": "profile-cards-generator"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        html = resp.read().decode("utf-8", "replace")
+
+    cells = {}
+    for tag in re.findall(r"<td[^>]*ContributionCalendar-day[^>]*>", html):
+        date = re.search(r'data-date="(\d{4}-\d{2}-\d{2})"', tag)
+        cid = re.search(r'id="([^"]+)"', tag)
+        level = re.search(r'data-level="(\d)"', tag)
+        if date and cid and level:
+            cells[cid.group(1)] = {"date": date.group(1), "level": int(level.group(1))}
+
+    counts = {}
+    for cid, text in re.findall(r'<tool-tip[^>]*\bfor="([^"]+)"[^>]*>([^<]*)</tool-tip>', html):
+        m = re.match(r"\s*([\d,]+) contributions?", text)
+        counts[cid] = int(m.group(1).replace(",", "")) if m else 0
+
+    if len(cells) < 300 or not counts:
+        raise ValueError(f"unexpected contributions markup ({len(cells)} days parsed)")
+
+    days = sorted(
+        (
+            {
+                "date": c["date"],
+                "contributionCount": counts.get(cid, 0),
+                "contributionLevel": LEVEL_NAMES[min(c["level"], 4)],
+            }
+            for cid, c in cells.items()
+        ),
+        key=lambda d: d["date"],
+    )
+
+    weeks, week = [], []
+    for d in days:
+        if week and dt.date.fromisoformat(d["date"]).weekday() == 6:  # Sunday starts a week
+            weeks.append({"contributionDays": week})
+            week = []
+        week.append(d)
+    if week:
+        weeks.append({"contributionDays": week})
+
+    total = sum(d["contributionCount"] for d in days)
+    return {
+        "totalCommitContributions": 0,
+        "restrictedContributionsCount": 0,
+        "contributionCalendar": {"totalContributions": total, "weeks": weeks},
+    }
 
 
 def mock() -> dict:
@@ -272,11 +339,15 @@ def main() -> int:
     if args.mock:
         collection = mock()
     else:
-        token = os.environ.get("GITHUB_TOKEN")
-        if not token:
-            print("GITHUB_TOKEN is not set (use --mock for a local preview)", file=sys.stderr)
-            return 1
-        collection = fetch(args.user, token)
+        try:
+            collection = fetch_public(args.user)
+        except Exception as exc:  # markup changed or network issue: fall back to the API
+            print(f"public calendar unavailable ({exc}); falling back to GraphQL", file=sys.stderr)
+            token = os.environ.get("GITHUB_TOKEN")
+            if not token:
+                print("GITHUB_TOKEN is not set (use --mock for a local preview)", file=sys.stderr)
+                return 1
+            collection = fetch(args.user, token)
 
     s = summarize(collection)
     updated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")

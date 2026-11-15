@@ -1,9 +1,9 @@
 # Renders the stats + contribution cards used in README.md and publishes them
 # to the `output` branch. No third-party card service involved.
 #
-# Optional: add a classic PAT (scope `read:user`) as repo secret PROFILE_TOKEN
-# if private contributions should be counted. Also enable
-# "Include private contributions on my profile" in GitHub profile settings.
+# Data comes from the public contribution calendar, which already includes
+# private contributions when "Include private contributions on my profile"
+# is enabled. No extra token or secret is needed.
 
 name: profile cards
 
@@ -32,7 +32,7 @@ jobs:
 
       - name: Render cards
         env:
-          GITHUB_TOKEN: ${{ secrets.PROFILE_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # only used for the API fallback
         run: python3 scripts/generate_cards.py --user "${{ github.repository_owner }}" --out dist
 
       - name: Publish to output branch
